@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>منصة التواصل الموحد — جمعية فرقان</title>
+<link rel="preconnect" href="https://script.google.com">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800&display=swap">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="topbar">
+  <img class="logo" src="furqan-logo.png" alt="شعار فرقان">
+  <div class="tb-txt"><h1>منصة التواصل الموحد</h1><p>رسائل البريد وواتساب في مكان واحد</p></div>
+  <div class="tb-user hidden" id="tbUser"><span id="meName"></span>
+    <button class="btn ghost hidden" id="usersBtn" onclick="openUsers()">المستخدمات</button>
+    <button class="btn ghost" onclick="logout()">خروج</button></div>
+</header>
+
+<!-- الدخول -->
+<main id="loginView" class="login">
+  <div class="card">
+    <h2>تسجيل الدخول</h2>
+    <label for="un">اسم المستخدم</label><input id="un" autocomplete="username">
+    <label for="pw">كلمة المرور</label><input id="pw" type="password" autocomplete="current-password">
+    <button class="btn block" id="loginBtn" onclick="login()">دخول</button>
+  </div>
+</main>
+
+<!-- صندوق الرسائل -->
+<main id="appView" class="app hidden">
+  <section class="side" id="side">
+    <div class="stats" id="stats"></div>
+    <div class="tools">
+      <input id="q" placeholder="بحث بالاسم أو الرقم أو البريد أو النص..." autocomplete="off" oninput="renderList()">
+      <div class="row">
+        <select id="fCh" onchange="renderList()"><option value="">كل القنوات</option><option>بريد</option><option>واتساب</option><option>أخرى</option></select>
+        <select id="fOwner" onchange="renderList()"><option value="">كل المسؤولات</option><option value="__me">المسندة لي</option><option value="__none">غير مسندة</option></select>
+      </div>
+      <div class="row">
+        <button class="btn light" onclick="openAdd()">＋ تسجيل رسالة</button>
+        <button class="btn light" id="syncBtn" onclick="syncNow(this)">↻ تحديث البريد</button>
+      </div>
+    </div>
+    <div class="list" id="list"><p class="empty">جارِ التحميل...</p></div>
+    <p class="foot" id="foot"></p>
+  </section>
+
+  <section class="conv" id="conv">
+    <div class="conv-empty" id="convEmpty">
+      <div class="ce-ico">✉</div>
+      <p>اختاري محادثة من القائمة</p>
+      <small>الرسائل التي تنتظر الرد تظهر أولاً، والأقدم منها أعلى القائمة.</small>
+    </div>
+    <div class="conv-box hidden" id="convBox">
+      <div class="conv-head">
+        <button class="btn ghost back" onclick="closeConv()">→ رجوع</button>
+        <div class="ch-main">
+          <div class="ch-name"><span class="ch-badge" id="cChannel"></span><b id="cName"></b> <button class="lnk" onclick="renameConv()">تعديل الاسم</button></div>
+          <div class="ch-sub" id="cContact"></div>
+          <div class="ch-sub" id="cSubject"></div>
+        </div>
+      </div>
+      <div class="conv-ctrl">
+        <label>الحالة<select id="cStatus" onchange="setStatus(this.value)"><option>بانتظار الرد</option><option>قيد المتابعة</option><option>تم الرد</option><option>مغلقة</option></select></label>
+        <label>المسؤولة<select id="cOwner" onchange="assign(this.value)"></select></label>
+        <div class="ch-replied" id="cReplied"></div>
+      </div>
+      <div class="msgs" id="msgs"></div>
+      <div class="notes">
+        <details id="notesBox"><summary>ملاحظات داخلية للفريق <span id="notesCount"></span></summary>
+          <div id="notesList"></div>
+          <div class="row"><input id="noteIn" placeholder="ملاحظة لا تصل للمرسل..."><button class="btn light" onclick="addNote(this)">إضافة</button></div>
+        </details>
+      </div>
+      <div class="reply">
+        <textarea id="replyIn" rows="3" placeholder="اكتبي الرد..."></textarea>
+        <div class="reply-acts" id="replyActs"></div>
+        <p class="hint" id="replyHint"></p>
+      </div>
+    </div>
+  </section>
+</main>
+
+<!-- تسجيل رسالة يدوياً -->
+<div class="modal hidden" id="addModal" onclick="if(event.target===this)closeModal('addModal')">
+  <div class="modal-box">
+    <h2>تسجيل رسالة وصلت</h2>
+    <p class="hint">لرسائل واتساب التي لم تصل تلقائياً، أو الاتصالات والزيارات، حتى لا تُنسى.</p>
+    <label for="aCh">القناة</label>
+    <select id="aCh" onchange="addChChanged()"><option>واتساب</option><option>بريد</option><option>أخرى</option></select>
+    <label for="aContact" id="aContactLbl">رقم الجوال</label><input id="aContact" autocomplete="off">
+    <label for="aName">اسم المرسل (اختياري)</label><input id="aName" autocomplete="off">
+    <label for="aSubject">الموضوع (اختياري)</label><input id="aSubject" autocomplete="off">
+    <label for="aText">نص الرسالة</label><textarea id="aText" rows="4"></textarea>
+    <div class="row"><button class="btn" onclick="saveManual(this)">حفظ</button><button class="btn light" onclick="closeModal('addModal')">إلغاء</button></div>
+  </div>
+</div>
+
+<!-- المستخدمات (للمديرة) -->
+<div class="modal hidden" id="usersModal" onclick="if(event.target===this)closeModal('usersModal')">
+  <div class="modal-box wide">
+    <h2>المستخدمات</h2>
+    <div id="usersList"></div>
+    <h3>إضافة أو تعديل مستخدمة</h3>
+    <div class="row"><input id="uName" placeholder="الاسم"><input id="uUser" placeholder="اسم المستخدم"></div>
+    <div class="row"><input id="uPass" placeholder="كلمة المرور (اتركيها فارغة للإبقاء على السابقة)">
+      <select id="uRole"><option>موظفة</option><option>مديرة</option></select>
+      <select id="uState"><option>فعّال</option><option>موقوف</option></select></div>
+    <div class="row"><button class="btn" onclick="saveUser(this)">حفظ</button><button class="btn light" onclick="closeModal('usersModal')">إغلاق</button></div>
+  </div>
+</div>
+
+<div id="toast"></div>
+<script src="config.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
