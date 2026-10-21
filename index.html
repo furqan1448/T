@@ -76,6 +76,8 @@
         </details>
       </div>
       <div class="reply">
+        <div class="tpl-bar"><select id="tplSel" onchange="useTpl(this)"><option value="">ردود جاهزة...</option></select>
+          <button class="lnk" onclick="saveTpl()">＋ حفظ الرد المكتوب كرد جاهز</button></div>
         <textarea id="replyIn" rows="3" placeholder="اكتبي الرد..."></textarea>
         <div class="reply-acts" id="replyActs"></div>
         <p class="hint" id="replyHint"></p>
@@ -89,6 +91,9 @@
   <div class="modal-box">
     <h2>تسجيل رسالة وصلت</h2>
     <p class="hint">لرسائل واتساب التي لم تصل تلقائياً، أو الاتصالات والزيارات، حتى لا تُنسى.</p>
+    <label for="aPaste">لصق الرسالة من واتساب (اختياري)</label>
+    <textarea id="aPaste" rows="3" placeholder="انسخي الرسالة من واتساب (ضغطة مطوّلة ← نسخ) والصقيها هنا، فيُستخرج الاسم أو الرقم والنص تلقائياً" oninput="parsePaste()"></textarea>
+    <p class="hint" id="aPasteHint"></p>
     <label for="aCh">القناة</label>
     <select id="aCh" onchange="addChChanged()"><option>واتساب</option><option>بريد</option><option>أخرى</option></select>
     <label for="aContact" id="aContactLbl">رقم الجوال</label><input id="aContact" autocomplete="off">

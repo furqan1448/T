@@ -3,7 +3,7 @@ const $ = id => document.getElementById(id);
 const U_KEY = 'tw_user', P_KEY = 'tw_pw', C_KEY = 'tw_cache';
 const ST = { WAIT: 'بانتظار الرد', FOLLOW: 'قيد المتابعة', DONE: 'تم الرد', CLOSED: 'مغلقة' };
 const ST_CLS = { 'بانتظار الرد': 'wait', 'قيد المتابعة': 'follow', 'تم الرد': 'done', 'مغلقة': 'closed' };
-let CONVS = [], USERS = [], ME = '', ROLE = '', CHANNELS = {}, CUR = null, CUR_MSGS = [], fSt = ST.WAIT, timer = null;
+let CONVS = [], USERS = [], ME = '', ROLE = '', CHANNELS = {}, CUR = null, CUR_MSGS = [], fSt = ST.WAIT, timer = null, TPLS = [];
 
 const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 function toast(msg, ok = true) {
@@ -76,7 +76,7 @@ function logout() {
 async function loadList(silent) {
   try {
     const o = await api('list');
-    CONVS = o.data || []; USERS = o.users || []; CHANNELS = o.channels || {};
+    CONVS = o.data || []; USERS = o.users || []; CHANNELS = o.channels || {}; TPLS = o.tpls || []; fillTpls();
     try { localStorage.setItem(C_KEY, JSON.stringify({ d: CONVS, u: USERS })); } catch (e) {}
     renderAll();
   } catch (e) { if (e.auth) { toast(e.message, false); logout(); } else if (!silent) toast(e.message, false); }
@@ -195,6 +195,48 @@ async function addNote(btn) {
 }
 function renameConv() { const n = prompt('اسم المرسل:', CUR.name || ''); if (n !== null) act('rename', { name: n.trim() }, null, 'تم الحفظ'); }
 
+/* ---------- الردود الجاهزة ---------- */
+function fillTpls() {
+  const el = $('tplSel'); if (!el) return;
+  el.innerHTML = '<option value="">ردود جاهزة...</option>' + TPLS.map((t, i) => '<option value="' + i + '">' + esc(t.title) + '</option>').join('');
+}
+function useTpl(el) {
+  const t = TPLS[+el.value]; el.value = ''; if (!t) return;
+  const box = $('replyIn');
+  box.value = box.value.trim() ? box.value.trim() + '\n' + t.text : t.text;
+  box.focus();
+}
+async function saveTpl() {
+  const text = $('replyIn').value.trim();
+  if (!text) return toast('اكتبي الرد أولاً ثم احفظيه كرد جاهز', false);
+  const title = prompt('عنوان قصير لهذا الرد (يظهر في قائمة الردود الجاهزة):', '');
+  if (!title || !title.trim()) return;
+  try { await api('saveTpl', { title: title.trim(), text }); toast('تم حفظ الرد الجاهز'); loadList(true); }
+  catch (e) { toast(e.message, false); }
+}
+
+/* ---------- لصق رسالة منسوخة من واتساب ----------
+   الصيغة عند النسخ: «[١:١٥ م، ٢٠‏/١٠‏/٢٠٢٦] نوال: النص» أو «[20/10/2026, 1:15 PM] +966 55 111 2222: النص» */
+function parsePaste() {
+  const raw = $('aPaste').value, hint = $('aPasteHint');
+  if (!raw.trim()) { hint.textContent = ''; return; }
+  const re = /^\s*\[[^\]]{4,40}\]\s*([^:\n]{1,60}):\s?([\s\S]*)$/;
+  const parts = [];
+  let cur = null;
+  raw.replace(/\r/g, '').split('\n').forEach(line => {
+    const m = line.replace(/[\u200e\u200f]/g, '').match(re);
+    if (m) { cur = { who: m[1].trim(), text: m[2] }; parts.push(cur); }
+    else if (cur) cur.text += '\n' + line;
+  });
+  if (!parts.length) { hint.textContent = 'لم يُتعرّف على صيغة واتساب، فاكتبي البيانات في الخانات أدناه (نُسخ النص إلى خانة نص الرسالة).'; if (!$('aText').value.trim()) $('aText').value = raw.trim(); return; }
+  const who = parts[0].who, digits = who.replace(/[٠-٩]/g, c => '٠١٢٣٤٥٦٧٨٩'.indexOf(c)).replace(/[^\d+]/g, '');
+  $('aCh').value = 'واتساب'; addChChanged();
+  $('aContact').value = ''; $('aName').value = '';
+  if (digits.replace(/\D/g, '').length >= 9) $('aContact').value = digits; else $('aName').value = who;
+  $('aText').value = parts.filter(p => p.who === who).map(p => p.text.trim()).join('\n');
+  hint.textContent = '✔ استُخرج: ' + (digits.replace(/\D/g, '').length >= 9 ? 'الرقم' : 'الاسم «' + who + '»') + ' ونص الرسالة' + (digits.replace(/\D/g, '').length >= 9 ? '' : ' — اكتبي رقم الجوال (الاسم المحفوظ في جوالكِ لا يُنسخ معه الرقم)');
+}
+
 /* ---------- تحديث البريد الآن ---------- */
 async function syncNow(btn) {
   busy(btn, true, 'جارِ السحب...');
@@ -204,7 +246,7 @@ async function syncNow(btn) {
 }
 
 /* ---------- تسجيل رسالة يدوياً ---------- */
-function openAdd() { ['aContact', 'aName', 'aSubject', 'aText'].forEach(id => $(id).value = ''); addChChanged(); $('addModal').classList.remove('hidden'); }
+function openAdd() { ['aPaste', 'aContact', 'aName', 'aSubject', 'aText'].forEach(id => $(id).value = ''); $('aPasteHint').textContent = ''; addChChanged(); $('addModal').classList.remove('hidden'); }
 function addChChanged() {
   const c = $('aCh').value;
   $('aContactLbl').textContent = c === 'واتساب' ? 'رقم الجوال' : c === 'بريد' ? 'البريد الإلكتروني' : 'الجهة (اسم أو رقم)';

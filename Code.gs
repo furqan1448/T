@@ -9,9 +9,12 @@
      SYNC_DAYS       عدد أيام البريد التي تُسحب في كل مرة (افتراضي 3)
      WA_VERIFY       كلمة سرية تختارينها لربط Webhook واتساب (تُكتب في رابط Webhook وفي Verify token)
      WA_TOKEN        Access token من Meta (للرد على واتساب من الموقع مباشرة)
-     WA_PHONE_ID     Phone number ID من Meta                                                     */
+     WA_PHONE_ID     Phone number ID من Meta
+     DIGEST_TO       بريد (أو أكثر مفصولة بفاصلة) يصله التذكير اليومي بالمحادثات المنتظرة (افتراضي: بريد الجمعية)
+     SITE_URL        رابط الموقع على GitHub Pages (يُضاف في رسالة التذكير اليومي)                    */
 
-const SH = { USERS: 'المستخدمات', CONV: 'المحادثات', MSG: 'الرسائل' };
+const SH = { USERS: 'المستخدمات', CONV: 'المحادثات', MSG: 'الرسائل', TPL: 'الردود الجاهزة' };
+const TPL_H = ['العنوان', 'النص'];
 const USER_H = ['الاسم', 'اسم المستخدم', 'كلمة المرور', 'الصلاحية', 'الحالة'];
 const CONV_H = ['المعرف', 'القناة', 'الجهة', 'الاسم', 'الموضوع', 'آخر رسالة', 'وقت آخر رسالة', 'الحالة', 'المسؤولة',
   'آخر رد بواسطة', 'وقت آخر رد', 'المعرف الخارجي', 'ملاحظات داخلية', 'وقت آخر وارد', 'وقت الإنشاء'];
@@ -25,7 +28,7 @@ const MAX_FAILS = 5, LOCK_MIN = 15;
 /* ============ التهيئة ============ */
 function setup() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
-  [[SH.USERS, USER_H], [SH.CONV, CONV_H], [SH.MSG, MSG_H]].forEach(([n, h]) => {
+  [[SH.USERS, USER_H], [SH.CONV, CONV_H], [SH.MSG, MSG_H], [SH.TPL, TPL_H]].forEach(([n, h]) => {
     let sh = ss.getSheetByName(n);
     if (!sh) sh = ss.insertSheet(n);
     if (sh.getLastRow() < 1) sh.getRange(1, 1, 1, h.length).setValues([h]);
@@ -36,9 +39,15 @@ function setup() {
   });
   const us = ss.getSheetByName(SH.USERS);
   if (us.getLastRow() < 2) us.appendRow(['المديرة', 'admin', '1234', ROLE_ADMIN, 'فعّال']);
+  const tp = ss.getSheetByName(SH.TPL);
+  if (tp.getLastRow() < 2) {
+    tp.appendRow(['ترحيب واستلام', 'وعليكم السلام ورحمة الله وبركاته\nشكراً لتواصلكم مع جمعية فرقان لتحفيظ القرآن الكريم، وصلتنا رسالتكم وسنفيدكم في أقرب وقت بإذن الله.']);
+    tp.appendRow(['أوقات الدوام', 'أوقات الدوام الرسمي من الأحد إلى الخميس، ويسعدنا تواصلكم في أي وقت.']);
+  }
   // مؤقت سحب البريد كل ٥ دقائق
-  ScriptApp.getProjectTriggers().filter(t => t.getHandlerFunction() === 'syncEmail').forEach(t => ScriptApp.deleteTrigger(t));
+  ScriptApp.getProjectTriggers().filter(t => ['syncEmail', 'dailyDigest'].indexOf(t.getHandlerFunction()) > -1).forEach(t => ScriptApp.deleteTrigger(t));
   ScriptApp.newTrigger('syncEmail').timeBased().everyMinutes(5).create();
+  ScriptApp.newTrigger('dailyDigest').timeBased().atHour(8).everyDays(1).inTimezone(TZ).create();   // تذكير يومي الساعة ٨ صباحاً
   syncEmail();
   Logger.log('تمت التهيئة. الحساب الأول: admin / 1234 — غيّري كلمة المرور من ورقة «المستخدمات». البريد المرتبط: ' + Session.getEffectiveUser().getEmail());
 }
@@ -237,6 +246,25 @@ function waSend_(c, text, user) {
   outgoing_(c, text, now_(), user.name, 'wa:' + out.messages[0].id, CH.WA);
 }
 
+/* ============ الردود الجاهزة ============ */
+const tpls_ = () => rows_(SH.TPL, TPL_H).map(x => ({ title: x.r[0], text: x.r[1], row: x.row }));
+
+/* ============ التذكير اليومي بالمحادثات المنتظرة ============ */
+function dailyDigest() {
+  const L = convs_().filter(c => c.status === ST.WAIT).sort((a, b) => String(a.lastInAt || a.lastAt).localeCompare(String(b.lastInAt || b.lastAt)));
+  if (!L.length) return { sent: 0 };
+  const to = prop_('DIGEST_TO') || Session.getEffectiveUser().getEmail(), site = prop_('SITE_URL');
+  const late = L.filter(c => (Date.now() - new Date(String(c.lastInAt || c.lastAt).replace(' ', 'T') + '+03:00')) > 24 * 3600 * 1000).length;
+  const e = s => String(s || '').replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+  const rows = L.slice(0, 50).map(c => '<tr><td>' + e(c.channel) + '</td><td>' + e(c.name || c.contact) + '</td><td>' + e(String(c.last).slice(0, 90)) + '</td><td>' + e(String(c.lastInAt || c.lastAt).slice(0, 16)) + '</td><td>' + e(c.owner || '—') + '</td></tr>').join('');
+  const html = '<div dir="rtl" style="font-family:Tahoma,Arial;font-size:14px;color:#2b2024">' +
+    '<h3 style="color:#7a1f2b">رسائل بانتظار الرد: ' + L.length + (late ? ' (منها ' + late + ' أكثر من يوم)' : '') + '</h3>' +
+    '<table cellpadding="6" style="border-collapse:collapse;border:1px solid #eadfd8"><tr style="background:#7a1f2b;color:#fff"><th>القناة</th><th>المرسل</th><th>آخر رسالة</th><th>وصلت</th><th>المسؤولة</th></tr>' + rows + '</table>' +
+    (site ? '<p><a href="' + e(site) + '">فتح منصة التواصل</a></p>' : '') + '</div>';
+  MailApp.sendEmail({ to, subject: 'تذكير: ' + L.length + ' رسالة بانتظار الرد — منصة التواصل', htmlBody: html, name: 'منصة التواصل الموحد' });
+  return { sent: L.length };
+}
+
 /* ============ الدخول ============ */
 function auth_(r) {
   const u = s_(r.username, 80).toLowerCase(), p = s_(r.password, 80);
@@ -282,6 +310,7 @@ function route_(r) {
     case 'list': {
       const L = convs_().map(c => { const o = Object.assign({}, c); delete o.row; delete o.ext; delete o.notes; o.hasNotes = !!c.notes; return o; });
       return { ok: true, data: L, users: usersPublic_(), me: user.name,
+        tpls: tpls_().map(t => ({ title: t.title, text: t.text })),
         channels: { mail: Session.getEffectiveUser().getEmail(), waHook: !!prop_('WA_VERIFY'), waApi: waApiReady_() } };
     }
     case 'conv': {
@@ -334,6 +363,19 @@ function route_(r) {
       return { ok: true, id: c.id };
     });
     case 'syncNow': return { ok: true, added: syncEmail().added };
+    case 'saveTpl': return withLock_(() => {   // حفظ رد جاهز (أي مستخدمة)، ويُستبدل إن كان بنفس العنوان
+      const title = s_(r.title, 80), text = s_(r.text, 3000);
+      if (!title || !text) throw new Error('اكتبي عنوان الرد ونصه');
+      const sh = sh_(SH.TPL), ex = tpls_().find(t => t.title === title);
+      sh.getRange(ex ? ex.row : sh.getLastRow() + 1, 1, 1, 2).setNumberFormat('@').setValues([[title, text]]);
+      return { ok: true };
+    });
+    case 'deleteTpl': return withLock_(() => {
+      if (user.role !== ROLE_ADMIN) throw new Error('حذف الردود الجاهزة للمديرة فقط');
+      const ex = tpls_().find(t => t.title === s_(r.title, 80));
+      if (ex) sh_(SH.TPL).deleteRow(ex.row);
+      return { ok: true };
+    });
     case 'users': {
       if (user.role !== ROLE_ADMIN) throw new Error('هذه الصفحة للمديرة فقط');
       return { ok: true, data: rows_(SH.USERS, USER_H).map(x => ({ name: x.r[0], username: x.r[1], role: x.r[3], state: x.r[4] || 'فعّال', row: x.row })) };
